@@ -3,32 +3,45 @@ mod error;
 mod plugins;
 mod protocol;
 
+use std::process::ExitCode;
+
 use crate::config::Config;
 use crate::error::Error;
 use crate::plugins::Plugins;
 use crate::protocol::Protocol;
 
-fn main() {
+fn main() -> ExitCode {
     match run() {
-        Ok(_) => (),
-        Err(e) => print_error(e),
+        Some(err) => {
+            print_error(&err);
+            ExitCode::FAILURE
+        }
+        None => ExitCode::SUCCESS,
     }
 }
 
 /// Run handler
-fn run() -> Result<(), Error> {
+fn run() -> Option<Error> {
     let args: Vec<String> = std::env::args().collect();
     let arg: &str = match args.len() {
         2 => &args[1],
-        1 => return Ok(print_usage()),
-        _ => return Err(Error::TooManyArgs),
+        1 => {
+            return {
+                print_usage();
+                None
+            }
+        }
+        _ => return Some(Error::TooManyArgs),
     };
 
     match arg {
-        "-v" | "--version" => Ok(print_usage()),
+        "-v" | "--version" => {
+            print_usage();
+            None
+        }
         _ => {
-            let proto = Protocol::parse(arg)?;
-            let config = Config::load()?;
+            let proto = Protocol::parse(arg).ok()?;
+            let config = Config::load().ok()?;
 
             match proto.plugin {
                 Plugins::Play => crate::plugins::play::exec(&proto, &config),
@@ -37,7 +50,6 @@ fn run() -> Result<(), Error> {
     }
 }
 
-/// Print usage
 fn print_usage() {
     let version: &str = option_env!("MPV_HANDLER_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
 
@@ -46,9 +58,7 @@ fn print_usage() {
     println!("OPTIONS:\n  {}    {}", "-v, --version", "show version");
 }
 
-/// Print error
-fn print_error(e: Error) {
-    eprint!("ERROR: {}", e);
-    std::io::Read::read(&mut std::io::stdin(), &mut [0]).unwrap();
-    std::process::exit(1);
+fn print_error(err: &Error) {
+    eprint!("ERROR: {err}");
+    std::io::Read::read(&mut std::io::stdin(), &mut []).unwrap();
 }

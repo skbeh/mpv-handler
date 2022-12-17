@@ -1,3 +1,6 @@
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 use crate::config::Config;
 use crate::error::Error;
 use crate::protocol::Protocol;
@@ -12,7 +15,7 @@ const Q_480: &str = "--ytdl-format=bestvideo[height<=480]+bestaudio/best[height<
 const Q_360: &str = "--ytdl-format=bestvideo[height<=360]+bestaudio/best[height<=360]/best";
 
 /// Execute player with given options
-pub fn exec(proto: &Protocol, config: &Config) -> Result<(), Error> {
+pub fn exec(proto: &Protocol, config: &Config) -> Option<Error> {
     let mut options: Vec<&str> = Vec::new();
 
     // Append cookies option
@@ -25,7 +28,7 @@ pub fn exec(proto: &Protocol, config: &Config) -> Result<(), Error> {
         {
             p = match dirs::config_dir() {
                 Some(path) => path,
-                None => return Err(Error::FailedGetConfigDir),
+                None => return Some(Error::FailedGetConfigDir),
             };
             p.push("mpv-handler");
             p.push("cookies");
@@ -45,7 +48,7 @@ pub fn exec(proto: &Protocol, config: &Config) -> Result<(), Error> {
             cookies_option.push_str(&p.display().to_string());
             options.push(&cookies_option);
         } else {
-            eprintln!("Cookies file {} doesn't exist", v);
+            eprintln!("Cookies file {v} doesn't exist");
         }
     }
 
@@ -80,17 +83,12 @@ pub fn exec(proto: &Protocol, config: &Config) -> Result<(), Error> {
     println!("Playing: {}", proto.url);
 
     // Execute mpv player
-    let player = std::process::Command::new(&config.mpv)
-        .args(options)
-        .arg("--")
-        .arg(&proto.url)
-        .status();
+    let mut command = std::process::Command::new(&config.mpv);
+    command.args(options).arg("--").arg(&proto.url);
 
-    match player {
-        Ok(o) => match o.success() {
-            true => Ok(()),
-            false => Err(Error::PlayerExited),
-        },
-        Err(e) => Err(Error::PlayerRunFailed(e)),
-    }
+    #[cfg(unix)]
+    return Some(Error::PlayerRunFailed(command.exec()));
+
+    #[cfg(windows)]
+    return command.status().err().map(Error::PlayerRunFailed);
 }
